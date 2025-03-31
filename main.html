@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Robotics Scouting App (with Firebase)</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; background: #f4f4f4; }
+    h1 { color: #333; }
+    form, table { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+    input, select, textarea { width: 100%; margin-bottom: 10px; padding: 8px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 10px; border: 1px solid #ccc; text-align: left; }
+    button { padding: 10px 15px; border: none; background: #007bff; color: white; border-radius: 5px; cursor: pointer; }
+    button:hover { background: #0056b3; }
+  </style>
+
+  <!-- Firebase Scripts -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js"></script>
+</head>
+<body>
+
+  <h1>🤖 Robotics Scouting App</h1>
+
+  <form id="scoutingForm">
+    <label>Team Number:</label>
+    <input type="number" id="teamNumber" required>
+
+    <label>Match Number:</label>
+    <input type="number" id="matchNumber" required>
+
+    <label>Autonomous:</label>
+    <select id="autonomous">
+      <option value="None">None</option>
+      <option value="Moved">Moved</option>
+      <option value="Scored">Scored</option>
+    </select>
+
+    <label>Teleop Performance (1-10):</label>
+    <input type="number" id="teleop" min="1" max="10">
+
+    <label>Endgame:</label>
+    <select id="endgame">
+      <option value="None">None</option>
+      <option value="Parked">Parked</option>
+      <option value="Climbed">Climbed</option>
+    </select>
+
+    <label>Notes:</label>
+    <textarea id="notes" rows="3"></textarea>
+
+    <button type="submit">Add Entry</button>
+  </form>
+
+  <button onclick="exportToCSV()">📤 Export to CSV</button>
+
+  <table id="dataTable">
+    <thead>
+      <tr>
+        <th>Team</th>
+        <th>Match</th>
+        <th>Autonomous</th>
+        <th>Teleop</th>
+        <th>Endgame</th>
+        <th>Notes</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <script>
+    // TODO: Replace with your Firebase project config
+    const firebaseConfig = {
+      apiKey: "YOUR_API_KEY",
+      authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+      projectId: "YOUR_PROJECT_ID",
+      storageBucket: "YOUR_PROJECT_ID.appspot.com",
+      messagingSenderId: "YOUR_SENDER_ID",
+      appId: "YOUR_APP_ID"
+    };
+
+    // Initialize Firebase
+    const app = firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    const form = document.getElementById('scoutingForm');
+    const tableBody = document.querySelector('#dataTable tbody');
+    const dataEntries = [];
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      const entry = {
+        team: document.getElementById('teamNumber').value,
+        match: document.getElementById('matchNumber').value,
+        autonomous: document.getElementById('autonomous').value,
+        teleop: document.getElementById('teleop').value,
+        endgame: document.getElementById('endgame').value,
+        notes: document.getElementById('notes').value.trim()
+      };
+      dataEntries.push(entry);
+      addToTable(entry);
+      form.reset();
+
+      // Save to Firestore
+      db.collection("scoutingData").add(entry)
+        .then(() => console.log("Data saved to Firestore"))
+        .catch((error) => console.error("Error writing to Firestore", error));
+    });
+
+    function addToTable(entry) {
+      const row = tableBody.insertRow();
+      row.insertCell().textContent = entry.team;
+      row.insertCell().textContent = entry.match;
+      row.insertCell().textContent = entry.autonomous;
+      row.insertCell().textContent = entry.teleop;
+      row.insertCell().textContent = entry.endgame;
+      row.insertCell().textContent = entry.notes;
+    }
+
+    function exportToCSV() {
+      if (dataEntries.length === 0) return alert("No data to export!");
+      let csv = "Team,Match,Autonomous,Teleop,Endgame,Notes\n";
+      dataEntries.forEach(e => {
+        csv += `${e.team},${e.match},${e.autonomous},${e.teleop},${e.endgame},"${e.notes.replace(/"/g, '""')}"\n`;
+      });
+
+      const blob = new Blob([csv], { type: "text/csv" });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.setAttribute("hidden", "");
+      a.setAttribute("href", url);
+      a.setAttribute("download", "scouting_data.csv");
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+
+    // Load existing data from Firestore on page load
+    window.addEventListener("DOMContentLoaded", () => {
+      db.collection("scoutingData").get()
+        .then((querySnapshot) => {
+          querySnapshot.forEach((doc) => {
+            const entry = doc.data();
+            dataEntries.push(entry);
+            addToTable(entry);
+          });
+        })
+        .catch((error) => console.error("Error loading Firestore data:", error));
+    });
+  </script>
+
+</body>
+</html>
