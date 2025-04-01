@@ -65,7 +65,7 @@
     <tbody></tbody>
   </table>
 
-  <!-- Firebase SDK - using module system -->
+  <!-- Firebase SDK using modules -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js";
     import { getFirestore, collection, setDoc, doc, getDocs } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js";
@@ -80,6 +80,8 @@
       measurementId: "G-FW5YYD4YE4"
     };
 
+    const slackWebhookURL = "https://hooks.slack.com/services/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"; // 👈 Replace with your real webhook
+
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
 
@@ -89,7 +91,6 @@
 
     form.addEventListener('submit', async function (e) {
       e.preventDefault();
-      console.log("Form submitted");
 
       const entry = {
         team: document.getElementById('teamNumber').value,
@@ -101,8 +102,6 @@
       };
 
       const docId = `${entry.team}_match${entry.match}`;
-      console.log("Saving doc with ID:", docId);
-
       dataEntries.push(entry);
       addToTable(entry);
       form.reset();
@@ -110,8 +109,21 @@
       try {
         await setDoc(doc(db, "scoutingData", docId), entry);
         console.log("✅ Data saved to Firestore");
+
+        const slackMessage = {
+          text: `📝 *Scouting Entry Submitted*\n*Team:* ${entry.team}\n*Match:* ${entry.match}\n*Auto:* ${entry.autonomous}\n*Teleop:* ${entry.teleop}\n*Endgame:* ${entry.endgame}\n*Notes:* ${entry.notes || "None"}`
+        };
+
+        await fetch(slackWebhookURL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(slackMessage)
+        });
+
+        console.log("📤 Sent to Slack");
+
       } catch (error) {
-        console.error("❌ Error saving to Firestore:", error);
+        console.error("❌ Error saving or sending:", error);
       }
     });
 
@@ -143,9 +155,7 @@
       document.body.removeChild(a);
     };
 
-    // Load existing entries
     window.addEventListener("DOMContentLoaded", async () => {
-      console.log("Loading existing entries...");
       try {
         const querySnapshot = await getDocs(collection(db, "scoutingData"));
         querySnapshot.forEach((docSnap) => {
@@ -153,7 +163,7 @@
           dataEntries.push(entry);
           addToTable(entry);
         });
-        console.log("✅ All entries loaded");
+        console.log("✅ Loaded previous entries");
       } catch (error) {
         console.error("❌ Failed to load data:", error);
       }
@@ -161,4 +171,3 @@
   </script>
 </body>
 </html>
-
