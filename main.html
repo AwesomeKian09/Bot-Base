@@ -80,7 +80,7 @@
       measurementId: "G-FW5YYD4YE4"
     };
 
-    const slackWebhookURL = "https://hooks.slack.com/services/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"; // 👈 Replace with your real webhook
+    const backendRelayURL = "https://your-render-app.onrender.com/send-to-slack"; // Update with your deployed Render URL
 
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
@@ -114,7 +114,7 @@
           text: `📝 *Scouting Entry Submitted*\n*Team:* ${entry.team}\n*Match:* ${entry.match}\n*Auto:* ${entry.autonomous}\n*Teleop:* ${entry.teleop}\n*Endgame:* ${entry.endgame}\n*Notes:* ${entry.notes || "None"}`
         };
 
-        await fetch(slackWebhookURL, {
+        await fetch(backendRelayURL, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(slackMessage)
