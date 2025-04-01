@@ -4,28 +4,24 @@ const fetch = require("node-fetch");
 const { initializeApp, cert } = require("firebase-admin/app");
 const { getFirestore } = require("firebase-admin/firestore");
 
-// Setup Express
 const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Initialize Firebase Admin SDK
+// Firebase Admin Init
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
 initializeApp({ credential: cert(serviceAccount) });
 const db = getFirestore();
 
-// Slack Webhook
 const SLACK_WEBHOOK = process.env.SLACK_WEBHOOK;
 
-// 🔁 POST /send-to-slack
+// ✅ Send message via webhook
 app.post("/send-to-slack", async (req, res) => {
   const slackMessage = req.body;
-  console.log("📥 Incoming request body:", slackMessage);
 
   if (!SLACK_WEBHOOK) {
-    console.error("❌ SLACK_WEBHOOK not defined");
-    return res.status(500).send({ error: "Slack webhook not configured" });
+    return res.status(500).send({ error: "SLACK_WEBHOOK not configured" });
   }
 
   try {
@@ -37,59 +33,41 @@ app.post("/send-to-slack", async (req, res) => {
 
     if (!slackRes.ok) {
       const errorText = await slackRes.text();
-      console.error("❌ Slack response error:", errorText);
-      throw new Error("Slack webhook failed");
+      throw new Error(errorText);
     }
 
-    console.log("📤 Message sent to Slack");
-    res.status(200).send({ success: true, message: "Posted to Slack" });
+    res.status(200).send({ success: true });
   } catch (err) {
-    console.error("❌ Error sending to Slack:", err);
+    console.error("Slack send error:", err);
     res.status(500).send({ error: err.message });
   }
 });
 
-// 🔁 POST /scout (Slash Command Handler)
+// 📝 /scout command
 app.post("/scout", async (req, res) => {
   const text = req.body.text || "";
-  console.log("⚡ Slash command text:", text);
-
   const [team, match, autonomous, teleop, endgame, ...noteWords] = text.split(" ");
   const notes = noteWords.join(" ");
 
   if (!team || !match || !autonomous || !teleop || !endgame) {
-    return res.json({
-      response_type: "ephemeral",
-      text: "❌ Usage: /scout [team] [match] [auto] [teleop] [endgame] [notes]"
-    });
+    return res.json({ response_type: "ephemeral", text: "Usage: /scout [team] [match] [auto] [teleop] [endgame] [notes]" });
   }
 
-  const entry = {
-    team,
-    match,
-    autonomous,
-    teleop,
-    endgame,
-    notes
-  };
+  const entry = { team, match, autonomous, teleop, endgame, notes };
 
   try {
     await db.collection("scoutingData").doc(`${team}_match${match}`).set(entry);
-
     res.json({
       response_type: "in_channel",
-      text: `✅ Entry logged for Team ${team}, Match ${match}\n*Auto:* ${autonomous}, *Teleop:* ${teleop}, *Endgame:* ${endgame}\n*Notes:* ${notes || "None"}`
+      text: `✅ Entry saved for Team ${team}, Match ${match}\nAuto: ${autonomous}, Teleop: ${teleop}, Endgame: ${endgame}\nNotes: ${notes || "None"}`
     });
   } catch (err) {
-    console.error("❌ Firestore error:", err);
-    res.json({
-      response_type: "ephemeral",
-      text: "❌ Failed to save entry to Firestore."
-    });
+    console.error("Firestore error:", err);
+    res.json({ text: "Failed to save entry." });
   }
 });
 
-// 🔍 /teaminfo [team]
+// 🔍 /teaminfo command
 app.post("/teaminfo", async (req, res) => {
   const team = (req.body.text || "").trim();
 
@@ -98,30 +76,23 @@ app.post("/teaminfo", async (req, res) => {
   }
 
   try {
-    const snapshot = await db.collection("scoutingData")
-      .where("team", "==", team)
-      .get();
+    const snapshot = await db.collection("scoutingData").where("team", "==", team).get();
+    if (snapshot.empty) return res.json({ text: `No data found for Team ${team}` });
 
-    if (snapshot.empty) {
-      return res.json({ text: `No data found for Team ${team}` });
-    }
-
-    let message = `📊 Scouting for Team ${team}:\n`;
-
+    let text = `📊 Scouting for Team ${team}:\n`;
     snapshot.forEach(doc => {
       const e = doc.data();
-      message += `• Match ${e.match}: Auto=${e.autonomous}, Teleop=${e.teleop}, Endgame=${e.endgame}, Notes: ${e.notes || "None"}\n`;
+      text += `• Match ${e.match}: Auto=${e.autonomous}, Teleop=${e.teleop}, Endgame=${e.endgame}, Notes=${e.notes || "None"}\n`;
     });
 
-    res.json({ response_type: "in_channel", text: message });
-
+    res.json({ response_type: "in_channel", text });
   } catch (err) {
-    console.error("❌ Error in /teaminfo:", err);
-    res.json({ text: "Error retrieving data." });
+    console.error("Error getting team info:", err);
+    res.json({ text: "Failed to retrieve data." });
   }
 });
 
-// 🧹 /clear [team] or /clear [team] [match]
+// 🧹 /clear command
 app.post("/clear", async (req, res) => {
   const [team, match] = (req.body.text || "").trim().split(" ");
 
@@ -133,35 +104,58 @@ app.post("/clear", async (req, res) => {
     const collection = db.collection("scoutingData");
 
     if (match) {
-      const docId = `${team}_match${match}`;
-      await collection.doc(docId).delete();
+      await collection.doc(`${team}_match${match}`).delete();
       return res.json({ text: `🗑️ Deleted Team ${team}, Match ${match}` });
     }
 
     const snapshot = await collection.where("team", "==", team).get();
-
-    if (snapshot.empty) {
-      return res.json({ text: `No entries found for Team ${team}` });
-    }
+    if (snapshot.empty) return res.json({ text: `No entries found for Team ${team}` });
 
     const batch = db.batch();
     snapshot.forEach(doc => batch.delete(doc.ref));
     await batch.commit();
 
     res.json({ text: `🧹 Cleared all entries for Team ${team}` });
-
   } catch (err) {
-    console.error("❌ Error in /clear:", err);
-    res.json({ text: "Error clearing data." });
+    console.error("Error clearing entries:", err);
+    res.json({ text: "Failed to clear data." });
   }
 });
 
-// Root check
-app.get("/", (req, res) => {
-  res.send("🚀 Slack relay server is running!");
+// 🔐 OAuth redirect
+app.get("/slack/oauth", async (req, res) => {
+  const code = req.query.code;
+  if (!code) return res.status(400).send("Missing code");
+
+  try {
+    const slackRes = await fetch("https://slack.com/api/oauth.v2.access", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        code,
+        client_id: process.env.SLACK_CLIENT_ID,
+        client_secret: process.env.SLACK_CLIENT_SECRET,
+        redirect_uri: "https://your-app.onrender.com/slack/oauth"
+      })
+    });
+
+    const data = await slackRes.json();
+    if (!data.ok) throw new Error(data.error);
+
+    console.log("✅ Slack app installed:", data);
+    res.send("✅ Slack app installed successfully!");
+  } catch (err) {
+    console.error("OAuth error:", err);
+    res.status(500).send("OAuth failed");
+  }
 });
 
-// Start server
+// 🔍 Root check
+app.get("/", (req, res) => {
+  res.send("🚀 Slack scouting backend is running.");
+});
+
+// ✅ Start
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`✅ Server live on port ${PORT}`);
