@@ -16,8 +16,99 @@
   </style>
 
   <!-- Firebase Scripts -->
-  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js"></script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js";
+  import { getFirestore, collection, addDoc, getDocs } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyC6ycePTnfLGGm86n3qB3BjpzW8xr7Fgok",
+    authDomain: "bot-base-9ea5d.firebaseapp.com",
+    projectId: "bot-base-9ea5d",
+    storageBucket: "bot-base-9ea5d.appspot.com",
+    messagingSenderId: "796042603708",
+    appId: "1:796042603708:web:9db4d2ef2b70787b78b4b9",
+    measurementId: "G-FW5YYD4YE4"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+
+  const form = document.getElementById('scoutingForm');
+  const tableBody = document.querySelector('#dataTable tbody');
+  const dataEntries = [];
+
+  form.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    console.log("Form submitted!");
+
+    const entry = {
+      team: document.getElementById('teamNumber').value,
+      match: document.getElementById('matchNumber').value,
+      autonomous: document.getElementById('autonomous').value,
+      teleop: document.getElementById('teleop').value,
+      endgame: document.getElementById('endgame').value,
+      notes: document.getElementById('notes').value.trim()
+    };
+
+    console.log("Entry to save:", entry);
+
+    dataEntries.push(entry);
+    addToTable(entry);
+    form.reset();
+
+    try {
+      await addDoc(collection(db, "scoutingData"), entry);
+      console.log("✅ Data saved to Firestore");
+    } catch (error) {
+      console.error("❌ Error writing to Firestore", error);
+    }
+  });
+
+  function addToTable(entry) {
+    const row = tableBody.insertRow();
+    row.insertCell().textContent = entry.team;
+    row.insertCell().textContent = entry.match;
+    row.insertCell().textContent = entry.autonomous;
+    row.insertCell().textContent = entry.teleop;
+    row.insertCell().textContent = entry.endgame;
+    row.insertCell().textContent = entry.notes;
+  }
+
+  window.exportToCSV = function () {
+    if (dataEntries.length === 0) return alert("No data to export!");
+    let csv = "Team,Match,Autonomous,Teleop,Endgame,Notes\n";
+    dataEntries.forEach(e => {
+      csv += `${e.team},${e.match},${e.autonomous},${e.teleop},${e.endgame},"${e.notes.replace(/"/g, '""')}"\n`;
+    });
+
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.setAttribute("hidden", "");
+    a.setAttribute("href", url);
+    a.setAttribute("download", "scouting_data.csv");
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+
+  // Load existing data on page load
+  window.addEventListener("DOMContentLoaded", async () => {
+    console.log("Fetching existing data from Firestore...");
+    try {
+      const querySnapshot = await getDocs(collection(db, "scoutingData"));
+      querySnapshot.forEach((doc) => {
+        const entry = doc.data();
+        dataEntries.push(entry);
+        addToTable(entry);
+      });
+      console.log("✅ Data loaded");
+    } catch (error) {
+      console.error("❌ Error loading Firestore data:", error);
+    }
+  });
+</script>
+
 </head>
 <body>
 
