@@ -8,15 +8,11 @@ const { getFirestore } = require("firebase-admin/firestore");
 const app = express();
 app.use(cors());
 app.use(express.json());
-app.use(express.urlencoded({ extended: true })); // needed for Slack slash commands
+app.use(express.urlencoded({ extended: true }));
 
 // Initialize Firebase Admin SDK
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
-
-initializeApp({
-  credential: cert(serviceAccount)
-});
-
+initializeApp({ credential: cert(serviceAccount) });
 const db = getFirestore();
 
 // Slack Webhook
@@ -90,6 +86,73 @@ app.post("/scout", async (req, res) => {
       response_type: "ephemeral",
       text: "❌ Failed to save entry to Firestore."
     });
+  }
+});
+
+// 🔍 /teaminfo [team]
+app.post("/teaminfo", async (req, res) => {
+  const team = (req.body.text || "").trim();
+
+  if (!team) {
+    return res.json({ response_type: "ephemeral", text: "Usage: /teaminfo [team]" });
+  }
+
+  try {
+    const snapshot = await db.collection("scoutingData")
+      .where("team", "==", team)
+      .get();
+
+    if (snapshot.empty) {
+      return res.json({ text: `No data found for Team ${team}` });
+    }
+
+    let message = `📊 Scouting for Team ${team}:\n`;
+
+    snapshot.forEach(doc => {
+      const e = doc.data();
+      message += `• Match ${e.match}: Auto=${e.autonomous}, Teleop=${e.teleop}, Endgame=${e.endgame}, Notes: ${e.notes || "None"}\n`;
+    });
+
+    res.json({ response_type: "in_channel", text: message });
+
+  } catch (err) {
+    console.error("❌ Error in /teaminfo:", err);
+    res.json({ text: "Error retrieving data." });
+  }
+});
+
+// 🧹 /clear [team] or /clear [team] [match]
+app.post("/clear", async (req, res) => {
+  const [team, match] = (req.body.text || "").trim().split(" ");
+
+  if (!team) {
+    return res.json({ response_type: "ephemeral", text: "Usage: /clear [team] [match?]" });
+  }
+
+  try {
+    const collection = db.collection("scoutingData");
+
+    if (match) {
+      const docId = `${team}_match${match}`;
+      await collection.doc(docId).delete();
+      return res.json({ text: `🗑️ Deleted Team ${team}, Match ${match}` });
+    }
+
+    const snapshot = await collection.where("team", "==", team).get();
+
+    if (snapshot.empty) {
+      return res.json({ text: `No entries found for Team ${team}` });
+    }
+
+    const batch = db.batch();
+    snapshot.forEach(doc => batch.delete(doc.ref));
+    await batch.commit();
+
+    res.json({ text: `🧹 Cleared all entries for Team ${team}` });
+
+  } catch (err) {
+    console.error("❌ Error in /clear:", err);
+    res.json({ text: "Error clearing data." });
   }
 });
 
