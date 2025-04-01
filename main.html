@@ -70,15 +70,15 @@
   </table>
 
   <script>
-    // TODO: Replace with your Firebase project config
+    // ✅ Replace with your Firebase project config
     const firebaseConfig = {
-       apiKey: "AIzaSyC6ycePTnfLGGm86n3qB3BjpzW8xr7Fgok",
-  authDomain: "bot-base-9ea5d.firebaseapp.com",
-  projectId: "bot-base-9ea5d",
-  storageBucket: "bot-base-9ea5d.firebasestorage.app",
-  messagingSenderId: "796042603708",
-  appId: "1:796042603708:web:9db4d2ef2b70787b78b4b9",
-  measurementId: "G-FW5YYD4YE4"
+      apiKey: "AIzaSyC6ycePTnfLGGm86n3qB3BjpzW8xr7Fgok",
+      authDomain: "bot-base-9ea5d.firebaseapp.com",
+      projectId: "bot-base-9ea5d",
+      storageBucket: "bot-base-9ea5d.appspot.com", // ✅ FIXED!
+      messagingSenderId: "796042603708",
+      appId: "1:796042603708:web:9db4d2ef2b70787b78b4b9",
+      measurementId: "G-FW5YYD4YE4"
     };
 
     // Initialize Firebase
@@ -91,6 +91,8 @@
 
     form.addEventListener('submit', function (e) {
       e.preventDefault();
+      console.log("Form submitted!");
+
       const entry = {
         team: document.getElementById('teamNumber').value,
         match: document.getElementById('matchNumber').value,
@@ -99,14 +101,17 @@
         endgame: document.getElementById('endgame').value,
         notes: document.getElementById('notes').value.trim()
       };
+
+      console.log("Entry to save:", entry);
+
       dataEntries.push(entry);
       addToTable(entry);
       form.reset();
 
       // Save to Firestore
       db.collection("scoutingData").add(entry)
-        .then(() => console.log("Data saved to Firestore"))
-        .catch((error) => console.error("Error writing to Firestore", error));
+        .then(() => console.log("✅ Data saved to Firestore"))
+        .catch((error) => console.error("❌ Error writing to Firestore", error));
     });
 
     function addToTable(entry) {
@@ -139,6 +144,7 @@
 
     // Load existing data from Firestore on page load
     window.addEventListener("DOMContentLoaded", () => {
+      console.log("Fetching existing data from Firestore...");
       db.collection("scoutingData").get()
         .then((querySnapshot) => {
           querySnapshot.forEach((doc) => {
@@ -146,8 +152,9 @@
             dataEntries.push(entry);
             addToTable(entry);
           });
+          console.log("✅ Data loaded");
         })
-        .catch((error) => console.error("Error loading Firestore data:", error));
+        .catch((error) => console.error("❌ Error loading Firestore data:", error));
     });
   </script>
 
