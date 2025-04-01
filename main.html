@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Robotics Scouting App (with Firebase)</title>
+  <title>Robotics Scouting App</title>
   <style>
     body { font-family: Arial, sans-serif; padding: 20px; background: #f4f4f4; }
     h1 { color: #333; }
@@ -14,101 +14,6 @@
     button { padding: 10px 15px; border: none; background: #007bff; color: white; border-radius: 5px; cursor: pointer; }
     button:hover { background: #0056b3; }
   </style>
-
-  <!-- Firebase Scripts -->
-<script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js";
-  import { getFirestore, collection, addDoc, getDocs } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js";
-
-  const firebaseConfig = {
-    apiKey: "AIzaSyC6ycePTnfLGGm86n3qB3BjpzW8xr7Fgok",
-    authDomain: "bot-base-9ea5d.firebaseapp.com",
-    projectId: "bot-base-9ea5d",
-    storageBucket: "bot-base-9ea5d.appspot.com",
-    messagingSenderId: "796042603708",
-    appId: "1:796042603708:web:9db4d2ef2b70787b78b4b9",
-    measurementId: "G-FW5YYD4YE4"
-  };
-
-  const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
-
-  const form = document.getElementById('scoutingForm');
-  const tableBody = document.querySelector('#dataTable tbody');
-  const dataEntries = [];
-
-  form.addEventListener('submit', async function (e) {
-    e.preventDefault();
-    console.log("Form submitted!");
-
-    const entry = {
-      team: document.getElementById('teamNumber').value,
-      match: document.getElementById('matchNumber').value,
-      autonomous: document.getElementById('autonomous').value,
-      teleop: document.getElementById('teleop').value,
-      endgame: document.getElementById('endgame').value,
-      notes: document.getElementById('notes').value.trim()
-    };
-
-    console.log("Entry to save:", entry);
-
-    dataEntries.push(entry);
-    addToTable(entry);
-    form.reset();
-
-    try {
-      await addDoc(collection(db, "scoutingData"), entry);
-      console.log("✅ Data saved to Firestore");
-    } catch (error) {
-      console.error("❌ Error writing to Firestore", error);
-    }
-  });
-
-  function addToTable(entry) {
-    const row = tableBody.insertRow();
-    row.insertCell().textContent = entry.team;
-    row.insertCell().textContent = entry.match;
-    row.insertCell().textContent = entry.autonomous;
-    row.insertCell().textContent = entry.teleop;
-    row.insertCell().textContent = entry.endgame;
-    row.insertCell().textContent = entry.notes;
-  }
-
-  window.exportToCSV = function () {
-    if (dataEntries.length === 0) return alert("No data to export!");
-    let csv = "Team,Match,Autonomous,Teleop,Endgame,Notes\n";
-    dataEntries.forEach(e => {
-      csv += `${e.team},${e.match},${e.autonomous},${e.teleop},${e.endgame},"${e.notes.replace(/"/g, '""')}"\n`;
-    });
-
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.setAttribute("hidden", "");
-    a.setAttribute("href", url);
-    a.setAttribute("download", "scouting_data.csv");
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-  }
-
-  // Load existing data on page load
-  window.addEventListener("DOMContentLoaded", async () => {
-    console.log("Fetching existing data from Firestore...");
-    try {
-      const querySnapshot = await getDocs(collection(db, "scoutingData"));
-      querySnapshot.forEach((doc) => {
-        const entry = doc.data();
-        dataEntries.push(entry);
-        addToTable(entry);
-      });
-      console.log("✅ Data loaded");
-    } catch (error) {
-      console.error("❌ Error loading Firestore data:", error);
-    }
-  });
-</script>
-
 </head>
 <body>
 
@@ -160,29 +65,31 @@
     <tbody></tbody>
   </table>
 
-  <script>
-    // ✅ Replace with your Firebase project config
+  <!-- Firebase SDK - using module system -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js";
+    import { getFirestore, collection, setDoc, doc, getDocs } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js";
+
     const firebaseConfig = {
       apiKey: "AIzaSyC6ycePTnfLGGm86n3qB3BjpzW8xr7Fgok",
       authDomain: "bot-base-9ea5d.firebaseapp.com",
       projectId: "bot-base-9ea5d",
-      storageBucket: "bot-base-9ea5d.appspot.com", // ✅ FIXED!
+      storageBucket: "bot-base-9ea5d.appspot.com",
       messagingSenderId: "796042603708",
       appId: "1:796042603708:web:9db4d2ef2b70787b78b4b9",
       measurementId: "G-FW5YYD4YE4"
     };
 
-    // Initialize Firebase
-    const app = firebase.initializeApp(firebaseConfig);
-    const db = firebase.firestore();
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
 
     const form = document.getElementById('scoutingForm');
     const tableBody = document.querySelector('#dataTable tbody');
     const dataEntries = [];
 
-    form.addEventListener('submit', function (e) {
+    form.addEventListener('submit', async function (e) {
       e.preventDefault();
-      console.log("Form submitted!");
+      console.log("Form submitted");
 
       const entry = {
         team: document.getElementById('teamNumber').value,
@@ -193,16 +100,19 @@
         notes: document.getElementById('notes').value.trim()
       };
 
-      console.log("Entry to save:", entry);
+      const docId = `${entry.team}_match${entry.match}`;
+      console.log("Saving doc with ID:", docId);
 
       dataEntries.push(entry);
       addToTable(entry);
       form.reset();
 
-      // Save to Firestore
-      db.collection("scoutingData").add(entry)
-        .then(() => console.log("✅ Data saved to Firestore"))
-        .catch((error) => console.error("❌ Error writing to Firestore", error));
+      try {
+        await setDoc(doc(db, "scoutingData", docId), entry);
+        console.log("✅ Data saved to Firestore");
+      } catch (error) {
+        console.error("❌ Error saving to Firestore:", error);
+      }
     });
 
     function addToTable(entry) {
@@ -215,7 +125,7 @@
       row.insertCell().textContent = entry.notes;
     }
 
-    function exportToCSV() {
+    window.exportToCSV = function () {
       if (dataEntries.length === 0) return alert("No data to export!");
       let csv = "Team,Match,Autonomous,Teleop,Endgame,Notes\n";
       dataEntries.forEach(e => {
@@ -231,23 +141,24 @@
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-    }
+    };
 
-    // Load existing data from Firestore on page load
-    window.addEventListener("DOMContentLoaded", () => {
-      console.log("Fetching existing data from Firestore...");
-      db.collection("scoutingData").get()
-        .then((querySnapshot) => {
-          querySnapshot.forEach((doc) => {
-            const entry = doc.data();
-            dataEntries.push(entry);
-            addToTable(entry);
-          });
-          console.log("✅ Data loaded");
-        })
-        .catch((error) => console.error("❌ Error loading Firestore data:", error));
+    // Load existing entries
+    window.addEventListener("DOMContentLoaded", async () => {
+      console.log("Loading existing entries...");
+      try {
+        const querySnapshot = await getDocs(collection(db, "scoutingData"));
+        querySnapshot.forEach((docSnap) => {
+          const entry = docSnap.data();
+          dataEntries.push(entry);
+          addToTable(entry);
+        });
+        console.log("✅ All entries loaded");
+      } catch (error) {
+        console.error("❌ Failed to load data:", error);
+      }
     });
   </script>
-
 </body>
 </html>
+
