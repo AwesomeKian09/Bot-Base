@@ -122,6 +122,33 @@ app.post("/clear", async (req, res) => {
   }
 });
 
+// 🧾 /attend [name] [status] [practice?]
+app.post("/attend", async (req, res) => {
+  const [name, status, practiceRaw] = (req.body.text || "").trim().split(" ");
+
+  if (!name || !status) {
+    return res.json({
+      response_type: "ephemeral",
+      text: "Usage: /attend [name] [status] [optional: practice]\nExample: /attend Kian in 4/15"
+    });
+  }
+
+  const practice = practiceRaw || new Date().toISOString().split("T")[0];
+  const timestamp = new Date().toISOString();
+  const entry = { name, status, timestamp };
+
+  try {
+    await db.collection("attendance").doc(practice).collection("entries").add(entry);
+    res.json({
+      response_type: "in_channel",
+      text: `📅 *${name}* marked as *${status}* for *${practice}* at \`${new Date().toLocaleTimeString()}\``
+    });
+  } catch (err) {
+    console.error("❌ Error logging attendance:", err);
+    res.json({ text: "Failed to log attendance." });
+  }
+});
+
 // 🔐 OAuth redirect
 app.get("/slack/oauth", async (req, res) => {
   const code = req.query.code;
@@ -150,12 +177,12 @@ app.get("/slack/oauth", async (req, res) => {
   }
 });
 
-// 🔍 Root check
+// Root check
 app.get("/", (req, res) => {
   res.send("🚀 Slack scouting backend is running.");
 });
 
-// ✅ Start
+// Start server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`✅ Server live on port ${PORT}`);
