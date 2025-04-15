@@ -3,30 +3,22 @@ const cors = require("cors");
 const fetch = require("node-fetch");
 const { initializeApp, cert } = require("firebase-admin/app");
 const { getFirestore } = require("firebase-admin/firestore");
+const { Parser } = require("json2csv");
 
-// Setup Express
 const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Initialize Firebase Admin SDK
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
 initializeApp({ credential: cert(serviceAccount) });
 const db = getFirestore();
 
-// Slack Webhook
 const SLACK_WEBHOOK = process.env.SLACK_WEBHOOK;
 
-// 🔁 POST /send-to-slack
 app.post("/send-to-slack", async (req, res) => {
   const slackMessage = req.body;
-  console.log("📥 Incoming request body:", slackMessage);
-
-  if (!SLACK_WEBHOOK) {
-    console.error("❌ SLACK_WEBHOOK not defined");
-    return res.status(500).send({ error: "Slack webhook not configured" });
-  }
+  if (!SLACK_WEBHOOK) return res.status(500).send({ error: "SLACK_WEBHOOK not configured" });
 
   try {
     const slackRes = await fetch(SLACK_WEBHOOK, {
@@ -34,134 +26,125 @@ app.post("/send-to-slack", async (req, res) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(slackMessage)
     });
-
-    if (!slackRes.ok) {
-      const errorText = await slackRes.text();
-      console.error("❌ Slack response error:", errorText);
-      throw new Error("Slack webhook failed");
-    }
-
-    console.log("📤 Message sent to Slack");
-    res.status(200).send({ success: true, message: "Posted to Slack" });
+    if (!slackRes.ok) throw new Error(await slackRes.text());
+    res.status(200).send({ success: true });
   } catch (err) {
-    console.error("❌ Error sending to Slack:", err);
+    console.error("Slack send error:", err);
     res.status(500).send({ error: err.message });
   }
 });
 
-// 🔁 POST /scout (Slash Command Handler)
-app.post("/scout", async (req, res) => {
-  const text = req.body.text || "";
-  console.log("⚡ Slash command text:", text);
-
-  const [team, match, autonomous, teleop, endgame, ...noteWords] = text.split(" ");
-  const notes = noteWords.join(" ");
-
-  if (!team || !match || !autonomous || !teleop || !endgame) {
+app.post("/attend", async (req, res) => {
+  const [name, status, practiceRaw] = (req.body.text || "").trim().split(" ");
+  if (!name || !status) {
     return res.json({
       response_type: "ephemeral",
-      text: "❌ Usage: /scout [team] [match] [auto] [teleop] [endgame] [notes]"
+      text: "Usage: /attend [name] [status] [optional: practice]\nExample: /attend Kian in 4/15"
     });
   }
-
-  const entry = {
-    team,
-    match,
-    autonomous,
-    teleop,
-    endgame,
-    notes
-  };
-
+  const practice = (practiceRaw || new Date().toISOString().split("T")[0]).replace(/[\\/#. ]+/g, "-");
+  const timestamp = new Date().toISOString();
+  const entry = { name, status, timestamp };
   try {
-    await db.collection("scoutingData").doc(`${team}_match${match}`).set(entry);
-
+    await db.collection("attendance").doc(practice).collection("entries").add(entry);
     res.json({
       response_type: "in_channel",
-      text: `✅ Entry logged for Team ${team}, Match ${match}\n*Auto:* ${autonomous}, *Teleop:* ${teleop}, *Endgame:* ${endgame}\n*Notes:* ${notes || "None"}`
+      text: `📅 *${name}* marked as *${status}* for *${practice}* at \`${new Date().toLocaleTimeString()}\``
     });
   } catch (err) {
-    console.error("❌ Firestore error:", err);
+    console.error("❌ Error logging attendance:", err);
+    res.json({ text: "Failed to log attendance." });
+  }
+});
+
+app.post("/attendance-summary", async (req, res) => {
+  try {
+    const attendanceCollection = await db.collection("attendance").listDocuments();
+    const hoursPerPerson = {};
+
+    for (const practiceDoc of attendanceCollection) {
+      const entriesSnap = await db.collection("attendance").doc(practiceDoc.id).collection("entries").orderBy("timestamp").get();
+      const sessions = {};
+
+      entriesSnap.forEach(doc => {
+        const { name, status, timestamp } = doc.data();
+        if (!name || !status || !timestamp) return;
+
+        const time = new Date(timestamp).getTime();
+        const key = `${practiceDoc.id}_${name}`;
+
+        if (!sessions[key]) sessions[key] = { in: null, out: null };
+        if (status.toLowerCase() === "in") sessions[key].in = time;
+        else if (status.toLowerCase() === "out") sessions[key].out = time;
+      });
+
+      for (const [key, { in: start, out: end }] of Object.entries(sessions)) {
+        if (start && end && end > start) {
+          const name = key.split("_")[1];
+          const durationHrs = (end - start) / (1000 * 60 * 60);
+          hoursPerPerson[name] = (hoursPerPerson[name] || 0) + durationHrs;
+        }
+      }
+    }
+
+    const data = Object.entries(hoursPerPerson).map(([name, hours]) => ({
+      name,
+      hours: hours.toFixed(2)
+    }));
+
+    if (data.length === 0) return res.json({ text: "No data to export." });
+
+    const fields = ["name", "hours"];
+    const parser = new Parser({ fields });
+    const csv = parser.parse(data);
+
     res.json({
       response_type: "ephemeral",
-      text: "❌ Failed to save entry to Firestore."
+      text: `📄 *Attendance Hours (CSV):*\n\
+\
+\
+${csv}\n\
+\
+\
+`
     });
+  } catch (err) {
+    console.error("❌ Error exporting summary:", err);
+    res.json({ text: "Failed to export attendance summary." });
   }
 });
 
-// 🔍 /teaminfo [team]
-app.post("/teaminfo", async (req, res) => {
-  const team = (req.body.text || "").trim();
-
-  if (!team) {
-    return res.json({ response_type: "ephemeral", text: "Usage: /teaminfo [team]" });
-  }
+app.get("/slack/oauth", async (req, res) => {
+  const code = req.query.code;
+  if (!code) return res.status(400).send("Missing code");
 
   try {
-    const snapshot = await db.collection("scoutingData")
-      .where("team", "==", team)
-      .get();
-
-    if (snapshot.empty) {
-      return res.json({ text: `No data found for Team ${team}` });
-    }
-
-    let message = `📊 Scouting for Team ${team}:\n`;
-
-    snapshot.forEach(doc => {
-      const e = doc.data();
-      message += `• Match ${e.match}: Auto=${e.autonomous}, Teleop=${e.teleop}, Endgame=${e.endgame}, Notes: ${e.notes || "None"}\n`;
+    const slackRes = await fetch("https://slack.com/api/oauth.v2.access", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        code,
+        client_id: process.env.SLACK_CLIENT_ID,
+        client_secret: process.env.SLACK_CLIENT_SECRET,
+        redirect_uri: "https://bot-base-qzvs.onrender.com/slack/oauth"
+      })
     });
 
-    res.json({ response_type: "in_channel", text: message });
+    const data = await slackRes.json();
+    if (!data.ok) throw new Error(data.error);
 
+    console.log("✅ Slack app installed:", data);
+    res.send("✅ Slack app installed successfully!");
   } catch (err) {
-    console.error("❌ Error in /teaminfo:", err);
-    res.json({ text: "Error retrieving data." });
+    console.error("OAuth error:", err);
+    res.status(500).send("OAuth failed");
   }
 });
 
-// 🧹 /clear [team] or /clear [team] [match]
-app.post("/clear", async (req, res) => {
-  const [team, match] = (req.body.text || "").trim().split(" ");
-
-  if (!team) {
-    return res.json({ response_type: "ephemeral", text: "Usage: /clear [team] [match?]" });
-  }
-
-  try {
-    const collection = db.collection("scoutingData");
-
-    if (match) {
-      const docId = `${team}_match${match}`;
-      await collection.doc(docId).delete();
-      return res.json({ text: `🗑️ Deleted Team ${team}, Match ${match}` });
-    }
-
-    const snapshot = await collection.where("team", "==", team).get();
-
-    if (snapshot.empty) {
-      return res.json({ text: `No entries found for Team ${team}` });
-    }
-
-    const batch = db.batch();
-    snapshot.forEach(doc => batch.delete(doc.ref));
-    await batch.commit();
-
-    res.json({ text: `🧹 Cleared all entries for Team ${team}` });
-
-  } catch (err) {
-    console.error("❌ Error in /clear:", err);
-    res.json({ text: "Error clearing data." });
-  }
-});
-
-// Root check
 app.get("/", (req, res) => {
-  res.send("🚀 Slack relay server is running!");
+  res.send("🚀 Slack scouting backend is running.");
 });
 
-// Start server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`✅ Server live on port ${PORT}`);
