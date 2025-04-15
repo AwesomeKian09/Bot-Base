@@ -118,6 +118,7 @@ app.post("/attendance-summary", async (req, res) => {
   try {
     const attendanceCollection = await db.collection("attendance").listDocuments();
     const hoursPerPerson = {};
+    const practicesPerPerson = {};
 
     for (const practiceDoc of attendanceCollection) {
       const entriesSnap = await db.collection("attendance").doc(practiceDoc.id).collection("entries").orderBy("timestamp").get();
@@ -133,6 +134,9 @@ app.post("/attendance-summary", async (req, res) => {
         if (!sessions[key]) sessions[key] = { in: null, out: null };
         if (status.toLowerCase() === "in") sessions[key].in = time;
         else if (status.toLowerCase() === "out") sessions[key].out = time;
+
+        if (!practicesPerPerson[name]) practicesPerPerson[name] = new Set();
+        practicesPerPerson[name].add(practiceDoc.id);
       });
 
       for (const [key, { in: start, out: end }] of Object.entries(sessions)) {
@@ -146,24 +150,19 @@ app.post("/attendance-summary", async (req, res) => {
 
     const data = Object.entries(hoursPerPerson).map(([name, hours]) => ({
       name,
-      hours: hours.toFixed(2)
+      hours: hours.toFixed(2),
+      practices: practicesPerPerson[name]?.size || 0
     }));
 
     if (data.length === 0) return res.json({ text: "No data to export." });
 
-    const fields = ["name", "hours"];
+    const fields = ["name", "hours", "practices"];
     const parser = new Parser({ fields });
     const csv = parser.parse(data);
 
     res.json({
       response_type: "in_channel",
-      text: `📄 *Attendance Hours (CSV):*\n\
-\
-\
-${csv}\n\
-\
-\
-`
+      text: `📄 *Attendance Summary (CSV):*\n\`\`\`\n${csv}\n\`\`\``
     });
   } catch (err) {
     console.error("❌ Error exporting summary:", err);
@@ -182,41 +181,54 @@ app.post("/download-hours", async (req, res) => {
 app.get("/download-hours", async (req, res) => {
   try {
     const attendanceCollection = await db.collection("attendance").listDocuments();
-    const hoursPerPerson = {};
+   const practicesPerPerson = {};
+const hoursPerPerson = {};
 
-    for (const practiceDoc of attendanceCollection) {
-      const entriesSnap = await db.collection("attendance").doc(practiceDoc.id).collection("entries").orderBy("timestamp").get();
-      const sessions = {};
+for (const practiceDoc of attendanceCollection) {
+  const entriesSnap = await db
+    .collection("attendance")
+    .doc(practiceDoc.id)
+    .collection("entries")
+    .orderBy("timestamp")
+    .get();
 
-      entriesSnap.forEach(doc => {
-        const { name, status, timestamp } = doc.data();
-        if (!name || !status || !timestamp) return;
+  const sessions = {};
 
-        const time = new Date(timestamp).getTime();
-        const key = `${practiceDoc.id}_${name}`;
-        if (!sessions[key]) sessions[key] = { in: null, out: null };
+  entriesSnap.forEach(doc => {
+    const { name, status, timestamp } = doc.data();
+    if (!name || !status || !timestamp) return;
 
-        if (status.toLowerCase() === "in") sessions[key].in = time;
-        else if (status.toLowerCase() === "out") sessions[key].out = time;
-      });
+    // ✅ Track unique practices
+    if (!practicesPerPerson[name]) practicesPerPerson[name] = new Set();
+    practicesPerPerson[name].add(practiceDoc.id);
 
-      for (const [key, { in: start, out: end }] of Object.entries(sessions)) {
-        if (start && end && end > start) {
-          const name = key.split("_")[1];
-          const durationHrs = (end - start) / (1000 * 60 * 60);
-          hoursPerPerson[name] = (hoursPerPerson[name] || 0) + durationHrs;
-        }
-      }
+    const time = new Date(timestamp).getTime();
+    const key = `${practiceDoc.id}_${name}`;
+    if (!sessions[key]) sessions[key] = { in: null, out: null };
+
+    if (status.toLowerCase() === "in") sessions[key].in = time;
+    else if (status.toLowerCase() === "out") sessions[key].out = time;
+  });
+
+  for (const [key, { in: start, out: end }] of Object.entries(sessions)) {
+    if (start && end && end > start) {
+      const name = key.split("_")[1];
+      const durationHrs = (end - start) / (1000 * 60 * 60);
+      hoursPerPerson[name] = (hoursPerPerson[name] || 0) + durationHrs;
     }
+  }
+}
 
-    const rows = Object.entries(hoursPerPerson).map(([name, hours]) => ({
-      Name: name,
-      "Total Hours": hours.toFixed(2)
-    }));
+// ✅ Format final CSV rows
+const rows = Object.entries(hoursPerPerson).map(([name, hours]) => ({
+  Name: name,
+  "Total Hours": hours.toFixed(2),
+  "Practices Attended": practicesPerPerson[name]?.size || 0
+}));
 
-    const fields = ["Name", "Total Hours"];
-    const parser = new Parser({ fields });
-    const csv = parser.parse(rows);
+const fields = ["Name", "Total Hours", "Practices Attended"];
+const parser = new Parser({ fields });
+const csv = parser.parse(rows);
 
     const filePath = path.join(__dirname, "attendance_export.csv");
     fs.writeFileSync(filePath, csv);
