@@ -20,6 +20,61 @@ const SLACK_WEBHOOK = process.env.SLACK_WEBHOOK;
 
 app.post("/send-to-slack", async (req, res) => {
   const slackMessage = req.body;
+  // 🔁 /scout command
+app.post("/scout", async (req, res) => {
+  const text = req.body.text || "";
+  const [team, match, autonomous, teleop, endgame, ...noteWords] = text.split(" ");
+  const notes = noteWords.join(" ");
+
+  if (!team || !match || !autonomous || !teleop || !endgame) {
+    return res.json({
+      response_type: "ephemeral",
+      text: "Usage: /scout [team] [match] [auto] [teleop] [endgame] [notes]"
+    });
+  }
+
+  const entry = { team, match, autonomous, teleop, endgame, notes };
+
+  try {
+    await db.collection("scoutingData").doc(`${team}_match${match}`).set(entry);
+    res.json({
+      response_type: "in_channel",
+      text: `✅ Entry saved for Team ${team}, Match ${match}\nAuto: ${autonomous}, Teleop: ${teleop}, Endgame: ${endgame}\nNotes: ${notes || "None"}`
+    });
+  } catch (err) {
+    console.error("Firestore error:", err);
+    res.json({ text: "Failed to save entry." });
+  }
+});
+
+// 🔍 /teaminfo command
+app.post("/teaminfo", async (req, res) => {
+  const team = (req.body.text || "").trim();
+
+  if (!team) {
+    return res.json({
+      response_type: "ephemeral",
+      text: "Usage: /teaminfo [team]"
+    });
+  }
+
+  try {
+    const snapshot = await db.collection("scoutingData").where("team", "==", team).get();
+    if (snapshot.empty) return res.json({ text: `No data found for Team ${team}` });
+
+    let text = `📊 Scouting for Team ${team}:\n`;
+    snapshot.forEach(doc => {
+      const e = doc.data();
+      text += `• Match ${e.match}: Auto=${e.autonomous}, Teleop=${e.teleop}, Endgame=${e.endgame}, Notes=${e.notes || "None"}\n`;
+    });
+
+    res.json({ response_type: "in_channel", text });
+  } catch (err) {
+    console.error("Error getting team info:", err);
+    res.json({ text: "Failed to retrieve data." });
+  }
+});
+
   if (!SLACK_WEBHOOK) return res.status(500).send({ error: "SLACK_WEBHOOK not configured" });
 
   try {
