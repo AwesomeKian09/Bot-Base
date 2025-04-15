@@ -1,6 +1,8 @@
 const express = require("express");
 const cors = require("cors");
 const fetch = require("node-fetch");
+const fs = require("fs");
+const path = require("path");
 const { initializeApp, cert } = require("firebase-admin/app");
 const { getFirestore } = require("firebase-admin/firestore");
 const { Parser } = require("json2csv");
@@ -111,6 +113,70 @@ ${csv}\n\
   } catch (err) {
     console.error("❌ Error exporting summary:", err);
     res.json({ text: "Failed to export attendance summary." });
+  }
+});
+
+app.post("/download-hours", async (req, res) => {
+  const downloadLink = "https://bot-base-qzvs.onrender.com/download-hours";
+  res.json({
+    response_type: "in_channel",
+    text: `📥 *Click below to download the full attendance spreadsheet:*\n${downloadLink}`
+  });
+});
+
+app.get("/download-hours", async (req, res) => {
+  try {
+    const attendanceCollection = await db.collection("attendance").listDocuments();
+    const hoursPerPerson = {};
+
+    for (const practiceDoc of attendanceCollection) {
+      const entriesSnap = await db.collection("attendance").doc(practiceDoc.id).collection("entries").orderBy("timestamp").get();
+      const sessions = {};
+
+      entriesSnap.forEach(doc => {
+        const { name, status, timestamp } = doc.data();
+        if (!name || !status || !timestamp) return;
+
+        const time = new Date(timestamp).getTime();
+        const key = `${practiceDoc.id}_${name}`;
+        if (!sessions[key]) sessions[key] = { in: null, out: null };
+
+        if (status.toLowerCase() === "in") sessions[key].in = time;
+        else if (status.toLowerCase() === "out") sessions[key].out = time;
+      });
+
+      for (const [key, { in: start, out: end }] of Object.entries(sessions)) {
+        if (start && end && end > start) {
+          const name = key.split("_")[1];
+          const durationHrs = (end - start) / (1000 * 60 * 60);
+          hoursPerPerson[name] = (hoursPerPerson[name] || 0) + durationHrs;
+        }
+      }
+    }
+
+    const rows = Object.entries(hoursPerPerson).map(([name, hours]) => ({
+      Name: name,
+      "Total Hours": hours.toFixed(2)
+    }));
+
+    const fields = ["Name", "Total Hours"];
+    const parser = new Parser({ fields });
+    const csv = parser.parse(rows);
+
+    const filePath = path.join(__dirname, "attendance_export.csv");
+    fs.writeFileSync(filePath, csv);
+
+    res.download(filePath, "attendance_summary.csv", err => {
+      if (err) {
+        console.error("❌ Download error:", err);
+        res.status(500).send("Failed to generate file.");
+      } else {
+        fs.unlinkSync(filePath);
+      }
+    });
+  } catch (err) {
+    console.error("❌ Error creating downloadable spreadsheet:", err);
+    res.status(500).send("Failed to generate spreadsheet.");
   }
 });
 
