@@ -99,7 +99,7 @@ app.post("/attendance-summary", async (req, res) => {
     const csv = parser.parse(data);
 
     res.json({
-      response_type: "ephemeral",
+      response_type: "in_channel",
       text: `📄 *Attendance Hours (CSV):*\n\
 \
 \
