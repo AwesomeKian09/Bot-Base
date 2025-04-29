@@ -6,6 +6,7 @@ const path = require("path");
 const { initializeApp, cert } = require("firebase-admin/app");
 const { getFirestore } = require("firebase-admin/firestore");
 const { Parser } = require("json2csv");
+const { DateTime } = require('luxon');
 
 const app = express();
 app.use(cors());
@@ -101,26 +102,20 @@ app.post("/attend", async (req, res) => {
     });
   }
 
-  // Helper: Format today's date to MM-DD-YYYY in local time
-  const formatDate = (dateObj) => {
-    const local = new Date(dateObj.getTime() - dateObj.getTimezoneOffset() * 60000);
-    const mm = String(local.getMonth() + 1).padStart(2, '0');
-    const dd = String(local.getDate()).padStart(2, '0');
-    const yyyy = local.getFullYear();
-    return `${mm}-${dd}-${yyyy}`;
+  // ⏰ Get Central Time Date (MM-DD-YYYY)
+  const getCentralDate = () => {
+    return DateTime.now().setZone('America/Chicago').toFormat('MM-dd-yyyy');
   };
 
-  // Helper: Format local time string nicely
-  const getLocalTimeString = () => {
-    const now = new Date();
-    const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
-    return local.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  // ⏰ Get Central Time Clock (hh:mm AM/PM)
+  const getCentralTime = () => {
+    return DateTime.now().setZone('America/Chicago').toFormat('hh:mm a');
   };
 
-  const practiceDate = practiceRaw || formatDate(new Date());
+  const practiceDate = practiceRaw || getCentralDate();
   const practice = practiceDate.replace(/[\\/#. ]+/g, "-");
 
-  const timestamp = new Date().toISOString();
+  const timestamp = new Date().toISOString(); // Store actual UTC timestamp
   const entry = { name, status, timestamp };
 
   try {
@@ -128,14 +123,13 @@ app.post("/attend", async (req, res) => {
 
     res.json({
       response_type: "in_channel",
-      text: `📅 *${name}* marked as *${status}* for *${practice}* at \`${getLocalTimeString()}\``
+      text: `📅 *${name}* marked as *${status}* for *${practice}* at \`${getCentralTime()}\``
     });
   } catch (err) {
     console.error("❌ Error logging attendance:", err);
     res.json({ text: "Failed to log attendance." });
   }
 });
-
 
 app.post("/attendance-summary", async (req, res) => {
   try {
