@@ -1,6 +1,8 @@
 const express = require("express");
 const cors = require("cors");
 const fetch = require("node-fetch");
+const fs = require("fs");
+const path = require("path");
 const { initializeApp, cert } = require("firebase-admin/app");
 const { getFirestore } = require("firebase-admin/firestore");
 const { Parser } = require("json2csv");
@@ -18,6 +20,61 @@ const SLACK_WEBHOOK = process.env.SLACK_WEBHOOK;
 
 app.post("/send-to-slack", async (req, res) => {
   const slackMessage = req.body;
+  // 🔁 /scout command
+app.post("/scout", async (req, res) => {
+  const text = req.body.text || "";
+  const [team, match, autonomous, teleop, endgame, ...noteWords] = text.split(" ");
+  const notes = noteWords.join(" ");
+
+  if (!team || !match || !autonomous || !teleop || !endgame) {
+    return res.json({
+      response_type: "ephemeral",
+      text: "Usage: /scout [team] [match] [auto] [teleop] [endgame] [notes]"
+    });
+  }
+
+  const entry = { team, match, autonomous, teleop, endgame, notes };
+
+  try {
+    await db.collection("scoutingData").doc(`${team}_match${match}`).set(entry);
+    res.json({
+      response_type: "in_channel",
+      text: `✅ Entry saved for Team ${team}, Match ${match}\nAuto: ${autonomous}, Teleop: ${teleop}, Endgame: ${endgame}\nNotes: ${notes || "None"}`
+    });
+  } catch (err) {
+    console.error("Firestore error:", err);
+    res.json({ text: "Failed to save entry." });
+  }
+});
+
+// 🔍 /teaminfo command
+app.post("/teaminfo", async (req, res) => {
+  const team = (req.body.text || "").trim();
+
+  if (!team) {
+    return res.json({
+      response_type: "ephemeral",
+      text: "Usage: /teaminfo [team]"
+    });
+  }
+
+  try {
+    const snapshot = await db.collection("scoutingData").where("team", "==", team).get();
+    if (snapshot.empty) return res.json({ text: `No data found for Team ${team}` });
+
+    let text = `📊 Scouting for Team ${team}:\n`;
+    snapshot.forEach(doc => {
+      const e = doc.data();
+      text += `• Match ${e.match}: Auto=${e.autonomous}, Teleop=${e.teleop}, Endgame=${e.endgame}, Notes=${e.notes || "None"}\n`;
+    });
+
+    res.json({ response_type: "in_channel", text });
+  } catch (err) {
+    console.error("Error getting team info:", err);
+    res.json({ text: "Failed to retrieve data." });
+  }
+});
+
   if (!SLACK_WEBHOOK) return res.status(500).send({ error: "SLACK_WEBHOOK not configured" });
 
   try {
@@ -36,20 +93,42 @@ app.post("/send-to-slack", async (req, res) => {
 
 app.post("/attend", async (req, res) => {
   const [name, status, practiceRaw] = (req.body.text || "").trim().split(" ");
+
   if (!name || !status) {
     return res.json({
       response_type: "ephemeral",
-      text: "Usage: /attend [name] [status] [optional: practice]\nExample: /attend Kian in 4/15"
+      text: "Usage: /attend [name] [status] [optional: practice]\nExample: /attend Kian in 04-29-2025"
     });
   }
-  const practice = (practiceRaw || new Date().toISOString().split("T")[0]).replace(/[\\/#. ]+/g, "-");
+
+  // Helper: Format today's date to MM-DD-YYYY in local time
+  const formatDate = (dateObj) => {
+    const local = new Date(dateObj.getTime() - dateObj.getTimezoneOffset() * 60000);
+    const mm = String(local.getMonth() + 1).padStart(2, '0');
+    const dd = String(local.getDate()).padStart(2, '0');
+    const yyyy = local.getFullYear();
+    return `${mm}-${dd}-${yyyy}`;
+  };
+
+  // Helper: Format local time string nicely
+  const getLocalTimeString = () => {
+    const now = new Date();
+    const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
+    return local.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  };
+
+  const practiceDate = practiceRaw || formatDate(new Date());
+  const practice = practiceDate.replace(/[\\/#. ]+/g, "-");
+
   const timestamp = new Date().toISOString();
   const entry = { name, status, timestamp };
+
   try {
     await db.collection("attendance").doc(practice).collection("entries").add(entry);
+
     res.json({
       response_type: "in_channel",
-      text: `📅 *${name}* marked as *${status}* for *${practice}* at \`${new Date().toLocaleTimeString()}\``
+      text: `📅 *${name}* marked as *${status}* for *${practice}* at \`${getLocalTimeString()}\``
     });
   } catch (err) {
     console.error("❌ Error logging attendance:", err);
@@ -57,10 +136,12 @@ app.post("/attend", async (req, res) => {
   }
 });
 
+
 app.post("/attendance-summary", async (req, res) => {
   try {
     const attendanceCollection = await db.collection("attendance").listDocuments();
     const hoursPerPerson = {};
+    const practicesPerPerson = {};
 
     for (const practiceDoc of attendanceCollection) {
       const entriesSnap = await db.collection("attendance").doc(practiceDoc.id).collection("entries").orderBy("timestamp").get();
@@ -76,6 +157,9 @@ app.post("/attendance-summary", async (req, res) => {
         if (!sessions[key]) sessions[key] = { in: null, out: null };
         if (status.toLowerCase() === "in") sessions[key].in = time;
         else if (status.toLowerCase() === "out") sessions[key].out = time;
+
+        if (!practicesPerPerson[name]) practicesPerPerson[name] = new Set();
+        practicesPerPerson[name].add(practiceDoc.id);
       });
 
       for (const [key, { in: start, out: end }] of Object.entries(sessions)) {
@@ -89,28 +173,100 @@ app.post("/attendance-summary", async (req, res) => {
 
     const data = Object.entries(hoursPerPerson).map(([name, hours]) => ({
       name,
-      hours: hours.toFixed(2)
+      hours: hours.toFixed(2),
+      practices: practicesPerPerson[name]?.size || 0
     }));
 
     if (data.length === 0) return res.json({ text: "No data to export." });
 
-    const fields = ["name", "hours"];
+    const fields = ["name", "hours", "practices"];
     const parser = new Parser({ fields });
     const csv = parser.parse(data);
 
     res.json({
-      response_type: "ephemeral",
-      text: `📄 *Attendance Hours (CSV):*\n\
-\
-\
-${csv}\n\
-\
-\
-`
+      response_type: "in_channel",
+      text: `📄 *Attendance Summary (CSV):*\n\`\`\`\n${csv}\n\`\`\``
     });
   } catch (err) {
     console.error("❌ Error exporting summary:", err);
     res.json({ text: "Failed to export attendance summary." });
+  }
+});
+
+app.post("/download-hours", async (req, res) => {
+  const downloadLink = "https://bot-base-qzvs.onrender.com/download-hours";
+  res.json({
+    response_type: "in_channel",
+    text: `📥 *Click below to download the full attendance spreadsheet:*\n${downloadLink}`
+  });
+});
+
+app.get("/download-hours", async (req, res) => {
+  try {
+    const attendanceCollection = await db.collection("attendance").listDocuments();
+   const practicesPerPerson = {};
+const hoursPerPerson = {};
+
+for (const practiceDoc of attendanceCollection) {
+  const entriesSnap = await db
+    .collection("attendance")
+    .doc(practiceDoc.id)
+    .collection("entries")
+    .orderBy("timestamp")
+    .get();
+
+  const sessions = {};
+
+  entriesSnap.forEach(doc => {
+    const { name, status, timestamp } = doc.data();
+    if (!name || !status || !timestamp) return;
+
+    // ✅ Track unique practices
+    if (!practicesPerPerson[name]) practicesPerPerson[name] = new Set();
+    practicesPerPerson[name].add(practiceDoc.id);
+
+    const time = new Date(timestamp).getTime();
+    const key = `${practiceDoc.id}_${name}`;
+    if (!sessions[key]) sessions[key] = { in: null, out: null };
+
+    if (status.toLowerCase() === "in") sessions[key].in = time;
+    else if (status.toLowerCase() === "out") sessions[key].out = time;
+  });
+
+  for (const [key, { in: start, out: end }] of Object.entries(sessions)) {
+    if (start && end && end > start) {
+      const name = key.split("_")[1];
+      const durationHrs = (end - start) / (1000 * 60 * 60);
+      hoursPerPerson[name] = (hoursPerPerson[name] || 0) + durationHrs;
+    }
+  }
+}
+
+// ✅ Format final CSV rows
+const rows = Object.entries(hoursPerPerson).map(([name, hours]) => ({
+  Name: name,
+  "Total Hours": hours.toFixed(2),
+  "Practices Attended": practicesPerPerson[name]?.size || 0
+}));
+
+const fields = ["Name", "Total Hours", "Practices Attended"];
+const parser = new Parser({ fields });
+const csv = parser.parse(rows);
+
+    const filePath = path.join(__dirname, "attendance_export.csv");
+    fs.writeFileSync(filePath, csv);
+
+    res.download(filePath, "attendance_summary.csv", err => {
+      if (err) {
+        console.error("❌ Download error:", err);
+        res.status(500).send("Failed to generate file.");
+      } else {
+        fs.unlinkSync(filePath);
+      }
+    });
+  } catch (err) {
+    console.error("❌ Error creating downloadable spreadsheet:", err);
+    res.status(500).send("Failed to generate spreadsheet.");
   }
 });
 
