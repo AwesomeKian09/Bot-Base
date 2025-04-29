@@ -99,7 +99,16 @@ app.post("/attend", async (req, res) => {
       text: "Usage: /attend [name] [status] [optional: practice]\nExample: /attend Kian in 4/15"
     });
   }
-  const practice = (practiceRaw || new Date().toISOString().split("T")[0]).replace(/[\\/#. ]+/g, "-");
+const formatDate = (dateObj) => {
+  const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+  const dd = String(dateObj.getDate()).padStart(2, '0');
+  const yyyy = dateObj.getFullYear();
+  return `${mm}-${dd}-${yyyy}`;
+};
+
+const practiceDate = practiceRaw || formatDate(new Date());
+const practice = practiceDate.replace(/[\\/#. ]+/g, "-");
+
   const timestamp = new Date().toISOString();
   const entry = { name, status, timestamp };
   try {
