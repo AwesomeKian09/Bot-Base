@@ -107,6 +107,15 @@ const formatDate = (dateObj) => {
 };
 
 const practiceDate = practiceRaw || formatDate(new Date());
+const formatDate = (dateObj) => {
+  const local = new Date(dateObj.getTime() - dateObj.getTimezoneOffset() * 60000);
+  const mm = String(local.getMonth() + 1).padStart(2, '0');
+  const dd = String(local.getDate()).padStart(2, '0');
+  const yyyy = local.getFullYear();
+  return `${mm}-${dd}-${yyyy}`;
+};
+
+const practiceDate = practiceRaw || formatDate(new Date());
 const practice = practiceDate.replace(/[\\/#. ]+/g, "-");
 
   const timestamp = new Date().toISOString();
