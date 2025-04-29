@@ -130,20 +130,6 @@ app.post("/attend", async (req, res) => {
 });
 
 
-  const timestamp = new Date().toISOString();
-  const entry = { name, status, timestamp };
-  try {
-    await db.collection("attendance").doc(practice).collection("entries").add(entry);
-    res.json({
-      response_type: "in_channel",
-      text: `📅 *${name}* marked as *${status}* for *${practice}* at \`${new Date().toLocaleTimeString()}\``
-    });
-  } catch (err) {
-    console.error("❌ Error logging attendance:", err);
-    res.json({ text: "Failed to log attendance." });
-  }
-});
-
 app.post("/attendance-summary", async (req, res) => {
   try {
     const attendanceCollection = await db.collection("attendance").listDocuments();
