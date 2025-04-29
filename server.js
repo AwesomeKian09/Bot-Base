@@ -92,13 +92,30 @@ app.post("/teaminfo", async (req, res) => {
   }
 });
 
-app.post("/attend", async (req, res) => {
-  const [name, status, practiceRaw] = (req.body.text || "").trim().split(" ");
 
-  if (!name || !status) {
+app.post("/attend", async (req, res) => {
+  const parts = (req.body.text || "").trim().split(" ");
+
+  let name = parts[0];
+  const status = parts[1];
+  const practiceRaw = parts[2];
+
+  // 👤 Auto-fill name from Slack if missing
+  if (!status) {
     return res.json({
       response_type: "ephemeral",
-      text: "Usage: /attend [name] [status] [optional: practice]\nExample: /attend Kian in 04-29-2025"
+      text: "Usage: /attend [optional: name] [status] [optional: practice]\nExample: /attend in 04-29-2025"
+    });
+  }
+
+  if (!practiceRaw && (name === "in" || name === "out" || name === "remote")) {
+    // The first word was a status, not a name
+    practiceRaw = parts[1];
+    name = req.body.user_name; // <-- use Slack username
+  } else if (!name || !status) {
+    return res.json({
+      response_type: "ephemeral",
+      text: "Usage: /attend [optional: name] [status] [optional: practice]\nExample: /attend Kian in 04-29-2025"
     });
   }
 
@@ -115,7 +132,7 @@ app.post("/attend", async (req, res) => {
   const practiceDate = practiceRaw || getCentralDate();
   const practice = practiceDate.replace(/[\\/#. ]+/g, "-");
 
-  const timestamp = new Date().toISOString(); // Store actual UTC timestamp
+  const timestamp = new Date().toISOString(); // UTC storage
   const entry = { name, status, timestamp };
 
   try {
