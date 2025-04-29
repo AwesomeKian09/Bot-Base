@@ -109,9 +109,6 @@ const formatDate = (dateObj) => {
   return `${mm}-${dd}-${yyyy}`;
 };
 
-const practiceDate = practiceRaw || formatDate(new Date());
-const practice = practiceDate.replace(/[\\/#. ]+/g, "-");
-
   const timestamp = new Date().toISOString();
   const entry = { name, status, timestamp };
   try {
