@@ -94,37 +94,34 @@ app.post("/teaminfo", async (req, res) => {
 
 
 app.post("/attend", async (req, res) => {
-  const parts = (req.body.text || "").trim().split(" ");
+  const input = (req.body.text || "").trim().split(" ");
+  let name, status, practiceRaw;
 
-  let name = parts[0];
-  const status = parts[1];
-  const practiceRaw = parts[2];
+  // Determine if name was omitted
+  if (["in", "out", "remote"].includes(input[0]?.toLowerCase())) {
+    // Format: /attend in [date?]
+    name = req.body.user_name;
+    status = input[0];
+    practiceRaw = input[1];
+  } else {
+    // Format: /attend [name] [status] [date?]
+    name = input[0];
+    status = input[1];
+    practiceRaw = input[2];
+  }
 
-  // 👤 Auto-fill name from Slack if missing
-  if (!status) {
+  if (!name || !status) {
     return res.json({
       response_type: "ephemeral",
       text: "Usage: /attend [optional: name] [status] [optional: practice]\nExample: /attend in 04-29-2025"
     });
   }
 
-  if (!practiceRaw && (name === "in" || name === "out" || name === "remote")) {
-    // The first word was a status, not a name
-    practiceRaw = parts[1];
-    name = req.body.user_name; // <-- use Slack username
-  } else if (!name || !status) {
-    return res.json({
-      response_type: "ephemeral",
-      text: "Usage: /attend [optional: name] [status] [optional: practice]\nExample: /attend Kian in 04-29-2025"
-    });
-  }
-
-  // ⏰ Get Central Time Date (MM-DD-YYYY)
+  // Central Time helpers
   const getCentralDate = () => {
     return DateTime.now().setZone('America/Chicago').toFormat('MM-dd-yyyy');
   };
 
-  // ⏰ Get Central Time Clock (hh:mm AM/PM)
   const getCentralTime = () => {
     return DateTime.now().setZone('America/Chicago').toFormat('hh:mm a');
   };
@@ -132,12 +129,11 @@ app.post("/attend", async (req, res) => {
   const practiceDate = practiceRaw || getCentralDate();
   const practice = practiceDate.replace(/[\\/#. ]+/g, "-");
 
-  const timestamp = new Date().toISOString(); // UTC storage
+  const timestamp = new Date().toISOString();
   const entry = { name, status, timestamp };
 
   try {
     await db.collection("attendance").doc(practice).collection("entries").add(entry);
-
     res.json({
       response_type: "in_channel",
       text: `📅 *${name}* marked as *${status}* for *${practice}* at \`${getCentralTime()}\``
