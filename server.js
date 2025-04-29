@@ -101,7 +101,7 @@ app.post("/attend", async (req, res) => {
     });
   }
 
-  // 🔧 Format local date in MM-DD-YYYY
+  // Local time MM-DD-YYYY
   const formatDate = (dateObj) => {
     const local = new Date(dateObj.getTime() - dateObj.getTimezoneOffset() * 60000);
     const mm = String(local.getMonth() + 1).padStart(2, '0');
@@ -117,20 +117,18 @@ app.post("/attend", async (req, res) => {
   const entry = { name, status, timestamp };
 
   try {
-    // Respond to Slack immediately (within 3 sec)
+    await db.collection("attendance").doc(practice).collection("entries").add(entry);
+
     res.json({
       response_type: "in_channel",
       text: `📅 *${name}* marked as *${status}* for *${practice}* at \`${new Date().toLocaleTimeString()}\``
     });
-
-    // Save attendance to Firestore
-    await db.collection("attendance").doc(practice).collection("entries").add(entry);
-
   } catch (err) {
     console.error("❌ Error logging attendance:", err);
-    // Slack already responded, so this would only log server-side
+    res.json({ text: "Failed to log attendance." });
   }
 });
+
 
   const timestamp = new Date().toISOString();
   const entry = { name, status, timestamp };
