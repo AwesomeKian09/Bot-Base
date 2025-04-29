@@ -101,13 +101,20 @@ app.post("/attend", async (req, res) => {
     });
   }
 
-  // Local time MM-DD-YYYY
+  // Helper: Format today's date to MM-DD-YYYY in local time
   const formatDate = (dateObj) => {
     const local = new Date(dateObj.getTime() - dateObj.getTimezoneOffset() * 60000);
     const mm = String(local.getMonth() + 1).padStart(2, '0');
     const dd = String(local.getDate()).padStart(2, '0');
     const yyyy = local.getFullYear();
     return `${mm}-${dd}-${yyyy}`;
+  };
+
+  // Helper: Format local time string nicely
+  const getLocalTimeString = () => {
+    const now = new Date();
+    const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
+    return local.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
   };
 
   const practiceDate = practiceRaw || formatDate(new Date());
@@ -121,7 +128,7 @@ app.post("/attend", async (req, res) => {
 
     res.json({
       response_type: "in_channel",
-      text: `📅 *${name}* marked as *${status}* for *${practice}* at \`${new Date().toLocaleTimeString()}\``
+      text: `📅 *${name}* marked as *${status}* for *${practice}* at \`${getLocalTimeString()}\``
     });
   } catch (err) {
     console.error("❌ Error logging attendance:", err);
