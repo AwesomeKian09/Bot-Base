@@ -93,21 +93,44 @@ app.post("/teaminfo", async (req, res) => {
 
 app.post("/attend", async (req, res) => {
   const [name, status, practiceRaw] = (req.body.text || "").trim().split(" ");
+
   if (!name || !status) {
     return res.json({
       response_type: "ephemeral",
-      text: "Usage: /attend [name] [status] [optional: practice]\nExample: /attend Kian in 4/15"
+      text: "Usage: /attend [name] [status] [optional: practice]\nExample: /attend Kian in 04-29-2025"
     });
   }
 
-const practiceDate = practiceRaw || formatDate(new Date());
-const formatDate = (dateObj) => {
-  const local = new Date(dateObj.getTime() - dateObj.getTimezoneOffset() * 60000);
-  const mm = String(local.getMonth() + 1).padStart(2, '0');
-  const dd = String(local.getDate()).padStart(2, '0');
-  const yyyy = local.getFullYear();
-  return `${mm}-${dd}-${yyyy}`;
-};
+  // 🔧 Format local date in MM-DD-YYYY
+  const formatDate = (dateObj) => {
+    const local = new Date(dateObj.getTime() - dateObj.getTimezoneOffset() * 60000);
+    const mm = String(local.getMonth() + 1).padStart(2, '0');
+    const dd = String(local.getDate()).padStart(2, '0');
+    const yyyy = local.getFullYear();
+    return `${mm}-${dd}-${yyyy}`;
+  };
+
+  const practiceDate = practiceRaw || formatDate(new Date());
+  const practice = practiceDate.replace(/[\\/#. ]+/g, "-");
+
+  const timestamp = new Date().toISOString();
+  const entry = { name, status, timestamp };
+
+  try {
+    // Respond to Slack immediately (within 3 sec)
+    res.json({
+      response_type: "in_channel",
+      text: `📅 *${name}* marked as *${status}* for *${practice}* at \`${new Date().toLocaleTimeString()}\``
+    });
+
+    // Save attendance to Firestore
+    await db.collection("attendance").doc(practice).collection("entries").add(entry);
+
+  } catch (err) {
+    console.error("❌ Error logging attendance:", err);
+    // Slack already responded, so this would only log server-side
+  }
+});
 
   const timestamp = new Date().toISOString();
   const entry = { name, status, timestamp };
