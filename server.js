@@ -97,14 +97,28 @@ app.post("/attend", async (req, res) => {
   const input = (req.body.text || "").trim().split(" ");
   let name, status, practiceRaw;
 
-  // Determine if name was omitted
+  const userId = req.body.user_id;
+
+  // Fetch real name from Slack
+  let realName = null;
+  try {
+    const slackUserRes = await fetch(`https://slack.com/api/users.info?user=${userId}`, {
+      headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}` }
+    });
+    const userData = await slackUserRes.json();
+    if (userData.ok) {
+      realName = userData.user.real_name;
+    }
+  } catch (err) {
+    console.error("⚠️ Failed to fetch Slack user info:", err);
+  }
+
+  // Decide if name was omitted
   if (["in", "out", "remote"].includes(input[0]?.toLowerCase())) {
-    // Format: /attend in [date?]
-    name = req.body.user_name;
+    name = realName || req.body.user_name;
     status = input[0];
     practiceRaw = input[1];
   } else {
-    // Format: /attend [name] [status] [date?]
     name = input[0];
     status = input[1];
     practiceRaw = input[2];
@@ -117,19 +131,18 @@ app.post("/attend", async (req, res) => {
     });
   }
 
-  // Central Time helpers
+  // Format date in Central Time
   const getCentralDate = () => {
     return DateTime.now().setZone('America/Chicago').toFormat('MM-dd-yyyy');
   };
-
   const getCentralTime = () => {
     return DateTime.now().setZone('America/Chicago').toFormat('hh:mm a');
   };
 
   const practiceDate = practiceRaw || getCentralDate();
   const practice = practiceDate.replace(/[\\/#. ]+/g, "-");
-
   const timestamp = new Date().toISOString();
+
   const entry = { name, status, timestamp };
 
   try {
