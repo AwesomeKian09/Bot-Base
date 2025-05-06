@@ -104,8 +104,30 @@ const getCentralTime = () => {
 };
 
 const fetchRealName = async (userId) => {
-  return userId; // fallback to Slack user ID
+  try {
+    const slackRes = await fetch("https://slack.com/api/users.info", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${SLACK_BOT_TOKEN}`,
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      body: new URLSearchParams({ user: userId })
+    });
+
+    const data = await slackRes.json();
+    if (data.ok) {
+      const profile = data.user.profile;
+      return profile.real_name || profile.display_name || userId;
+    } else {
+      console.error("Slack API error:", data.error);
+      return userId;
+    }
+  } catch (err) {
+    console.error("Failed to fetch real name:", err);
+    return userId;
+  }
 };
+
 
 
 app.post("/attend", async (req, res) => {
