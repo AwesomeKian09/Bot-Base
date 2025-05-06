@@ -93,29 +93,45 @@ app.post("/teaminfo", async (req, res) => {
 });
 
 
+const { DateTime } = require('luxon');
+const fetch = require("node-fetch");
+
+const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
+
+const getCentralDate = () => {
+  return DateTime.now().setZone('America/Chicago').toFormat('MM-dd-yyyy');
+};
+
+const getCentralTime = () => {
+  return DateTime.now().setZone('America/Chicago').toFormat('hh:mm a');
+};
+
+const fetchRealName = async (userId) => {
+  try {
+    const slackRes = await fetch("https://slack.com/api/users.info", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${SLACK_BOT_TOKEN}`,
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      body: new URLSearchParams({ user: userId })
+    });
+
+    const data = await slackRes.json();
+    return data.ok ? data.user.real_name || data.user.name : userId;
+  } catch (err) {
+    console.error("Failed to fetch real name:", err);
+    return userId;
+  }
+};
+
 app.post("/attend", async (req, res) => {
   const input = (req.body.text || "").trim().split(" ");
   let name, status, practiceRaw;
 
-  const userId = req.body.user_id;
-
-  // Fetch real name from Slack
-  let realName = null;
-  try {
-    const slackUserRes = await fetch(`https://slack.com/api/users.info?user=${userId}`, {
-      headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}` }
-    });
-    const userData = await slackUserRes.json();
-    if (userData.ok) {
-      realName = userData.user.real_name;
-    }
-  } catch (err) {
-    console.error("⚠️ Failed to fetch Slack user info:", err);
-  }
-
-  // Decide if name was omitted
+  // Format: /attend in [date?] OR /attend [name] [status] [date?]
   if (["in", "out", "remote"].includes(input[0]?.toLowerCase())) {
-    name = realName || req.body.user_name;
+    name = await fetchRealName(req.body.user_id);
     status = input[0];
     practiceRaw = input[1];
   } else {
@@ -131,18 +147,9 @@ app.post("/attend", async (req, res) => {
     });
   }
 
-  // Format date in Central Time
-  const getCentralDate = () => {
-    return DateTime.now().setZone('America/Chicago').toFormat('MM-dd-yyyy');
-  };
-  const getCentralTime = () => {
-    return DateTime.now().setZone('America/Chicago').toFormat('hh:mm a');
-  };
-
   const practiceDate = practiceRaw || getCentralDate();
   const practice = practiceDate.replace(/[\\/#. ]+/g, "-");
   const timestamp = new Date().toISOString();
-
   const entry = { name, status, timestamp };
 
   try {
