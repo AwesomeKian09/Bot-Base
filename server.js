@@ -126,11 +126,11 @@ app.post("/attend", async (req, res) => {
   const input = (req.body.text || "").trim().split(" ");
   let name, status, practiceRaw;
 
-  // Format: /attend in [date?] OR /attend [name] [status] [date?]
+  // If the first word is a status, assume the name should be fetched from user_id
   if (["in", "out", "remote"].includes(input[0]?.toLowerCase())) {
-    name = await fetchRealName(req.body.user_id);
     status = input[0];
     practiceRaw = input[1];
+    name = await fetchRealName(req.body.user_id); // fetch full name
   } else {
     name = input[0];
     status = input[1];
@@ -140,20 +140,21 @@ app.post("/attend", async (req, res) => {
   if (!name || !status) {
     return res.json({
       response_type: "ephemeral",
-      text: "Usage: /attend [optional: name] [status] [optional: practice]\nExample: /attend in 04-29-2025"
+      text: "Usage: /attend [optional: name] [status] [optional: date]\nExample: /attend in 05-06-2025"
     });
   }
 
-  const practiceDate = practiceRaw || getCentralDate();
+  const practiceDate = practiceRaw || DateTime.now().setZone('America/Chicago').toFormat('MM-dd-yyyy');
   const practice = practiceDate.replace(/[\\/#. ]+/g, "-");
   const timestamp = new Date().toISOString();
+
   const entry = { name, status, timestamp };
 
   try {
     await db.collection("attendance").doc(practice).collection("entries").add(entry);
     res.json({
       response_type: "in_channel",
-      text: `📅 *${name}* marked as *${status}* for *${practice}* at \`${getCentralTime()}\``
+      text: `📅 *${name}* marked as *${status}* for *${practice}* at \`${DateTime.now().setZone('America/Chicago').toFormat('hh:mm a')}\``
     });
   } catch (err) {
     console.error("❌ Error logging attendance:", err);
