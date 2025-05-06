@@ -93,9 +93,6 @@ app.post("/teaminfo", async (req, res) => {
 });
 
 
-const { DateTime } = require('luxon');
-const fetch = require("node-fetch");
-
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
 
 const getCentralDate = () => {
