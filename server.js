@@ -115,7 +115,13 @@ const fetchRealName = async (userId) => {
     });
 
     const data = await slackRes.json();
-    return data.ok ? data.user.real_name || data.user.name : userId;
+    if (data.ok) {
+      const profile = data.user.profile;
+      return profile.real_name || profile.display_name || userId;
+    } else {
+      console.error("Slack API error:", data.error);
+      return userId;
+    }
   } catch (err) {
     console.error("Failed to fetch real name:", err);
     return userId;
